@@ -25,8 +25,8 @@ FP32_NUM_TESTS ?= 2000000
 export FP32_NUM_TESTS
 
 # Targets
-.PHONY: all add sub mul div sqrt debug_div clean softfloat
-all: div sqrt add sub mul
+.PHONY: all add sub mul div sqrt cmp debug_div clean softfloat
+all: div sqrt add sub mul cmp
 
 # Build SoftFloat reference library with the chosen specialization
 softfloat: $(SOFT_LIB)
@@ -52,6 +52,12 @@ mul: $(SOFT_LIB)
 		--exe tb_fp32_mul_comb.cpp -CFLAGS "$(CFLAGS)" -LDFLAGS "$(LDFLAGS)"
 	./obj_dir/Vfp32_mul_comb
 
+# Build and run the DW_fp_cmp-style FP32 comparator testbench
+cmp:
+	$(VERILATOR) --threads 4 --top-module fp32_cmp_comb --build --cc fp32_cmp_comb.sv \
+		--exe tb_fp32_cmp_comb.cpp
+	./obj_dir/Vfp32_cmp_comb
+
 # Build fp32_div_comb testbench
 div:
 	$(VERILATOR) --threads 4 --top-module fp32_div_comb --build --cc fp32_div_comb.sv fp32_sqrt_comb.sv \
@@ -70,4 +76,4 @@ debug_div:
 # Clean artifacts
 clean:
 	rm -rf obj_dir
-	rm -f Vfp32_div_comb Vfp32_sqrt_comb Vfp32_add_comb Vfp32_sub_comb Vfp32_mul_comb
+	rm -f Vfp32_div_comb Vfp32_sqrt_comb Vfp32_add_comb Vfp32_sub_comb Vfp32_mul_comb Vfp32_cmp_comb

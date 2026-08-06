@@ -14,6 +14,7 @@ This project provides high-performance, combinational floating-point arithmetic 
 - **`fp32_add_comb.sv`**: Combinational FP32 adder (thin wrapper over the shared core)
 - **`fp32_sub_comb.sv`**: Combinational FP32 subtractor (thin wrapper over the shared core)
 - **`fp32_mul_comb.sv`**: Independent combinational FP32 multiplier
+- **`fp32_cmp_comb.sv`**: DW_fp_cmp-style FP32 comparator with ordered min/max outputs
 - **`fp32_div_comb.sv`**: Combinational FP32 divider with full IEEE-754 compliance
 - **`fp32_sqrt_comb.sv`**: Combinational FP32 square-root with IEEE-754 compliance  
 - **Comprehensive Verification**: Self-checking testbenches using Verilator, with SoftFloat as an
@@ -72,6 +73,7 @@ which the result and all five exception flags are checked bit-for-bit.
    make add      # Build & run the adder testbench
    make sub      # Build & run the subtractor testbench
    make mul      # Build & run the multiplier testbench
+   make cmp      # Build & run the comparator testbench
    make div      # Build the divider testbench
    make sqrt     # Build the sqrt testbench
    make clean    # Clean all generated files
@@ -140,6 +142,28 @@ module fp32_mul_comb (
 );
 ```
 
+### FP32 Comparator (`fp32_cmp_comb`)
+```systemverilog
+module fp32_cmp_comb (
+    input  logic [31:0] a,
+    input  logic [31:0] b,
+    input  logic        zctr,       // 0: z0=min/z1=max, 1: z0=max/z1=min
+    output logic        aeqb,
+    output logic        altb,
+    output logic        agtb,
+    output logic        unordered,
+    output logic [31:0] z0,
+    output logic [31:0] z1,
+    output logic [ 7:0] status0,
+    output logic [ 7:0] status1
+);
+```
+
+`+0` and `-0` compare equal. Any NaN makes the relation unordered and passes
+`a` to `z0` and `b` to `z1`. For each ordered result, status bits `[0]`, `[1]`,
+and `[2]` identify zero, infinity, and NaN; bit `[7]` indicates that the output
+was selected from operand `a`.
+
 ### FP32 Divider (`fp32_div_comb`)
 ```systemverilog
 module fp32_div_comb (
@@ -171,6 +195,8 @@ module fp32_sqrt_comb (
     magnitude add/subtract, leading-zero normalisation bounded by the minimum exponent
   - *Multiply* (`fp32_mul_comb`): normalised 24x24-bit significand product into 48 bits, binade
     select, then the same generic normalisation and GRS rounding stage
+  - *Compare* (`fp32_cmp_comb`): sign-aware magnitude comparison with IEEE zero/NaN handling and
+    selectable min/max routing
   - *Divide* (`fp32_div_comb`): restoring division
   - *Square root* (`fp32_sqrt_comb`): radix-4 pair-bit method
 - **Precision**: Full 24-bit significand with explicit guard/round/sticky bits
@@ -227,6 +253,7 @@ This project is released under the **MIT License**. See the `LICENSE` file for d
 
 | Date       | Description |
 |------------|-------------|
+| 2026-08-07 | Add `fp32_cmp_comb`, a DW_fp_cmp-style fixed-FP32 comparator with relation flags, unordered detection, selectable min/max outputs, per-output status, and randomized self-checking verification. |
 | 2026-08-07 | Rewrite `fp32_addsub.sv` and `fp32_mul_comb.sv` as independently authored, MIT-only IEEE-754 RTL using conventional floating-point hardware techniques (unpack/classify, sticky-preserving alignment, magnitude add/sub with cancellation handling, leading-zero normalisation, explicit GRS + RNE rounding, gradual underflow, tininess-before-rounding). SoftFloat is used strictly as a black-box test oracle. |
 | 2026-08-06 | Add combinational FP32 add/subtract/multiply units (`fp32_addsub` core with `fp32_add_comb`/`fp32_sub_comb` wrappers and independent `fp32_mul_comb`), with self-checking testbenches (corner/systematic/stratified-random vs `f32_add`/`f32_sub`/`f32_mul`) and `add`/`sub`/`mul` Makefile targets. |
 | 2026-03-01 | Adopt RISC-V NaN specification: canonical NaN (`0x7FC00000`), no payload propagation. Switch SoftFloat to `SPECIALIZE_TYPE = RISCV`. Document implementation-defined behavior in README. |
