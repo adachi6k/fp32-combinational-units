@@ -64,7 +64,7 @@ which the result and all five exception flags are checked bit-for-bit.
 
   | Tool / frontend | Status | Continuous check | Verified on |
   |---|---|---|---|
-  | Verilator | Supported | `make lint`, `make smoke` | Ubuntu 24.04 / Verilator 5.020 (minimum) |
+  | Verilator | Supported | `make lint`, `make smoke` | Ubuntu 24.04 / Verilator 5.020 |
   | Icarus Verilog | Not yet qualified | No | — |
   | Yosys | Not yet qualified | No | — |
 
@@ -91,13 +91,16 @@ which the result and all five exception flags are checked bit-for-bit.
    make div-test
    make sqrt-build
    make sqrt-test
+   make cli-test # Build all benches and verify invalid CLI inputs fail fast
    make lint     # Verilator --lint-only --Wall over all six top modules
    make clean    # Clean all generated files
    ```
 
    The randomized vector count for every randomized testbench is configurable
    (the deterministic corner cases and systematic boundary sweeps always run).
-   The randomized sequence is reproducible through a shared seed. Set
+   Counts and seeds are unsigned 64-bit integers; negative, non-numeric, and
+   out-of-range values are rejected. The randomized sequence is reproducible
+   through a shared seed, and all 64 seed bits affect every PRNG. Set
    `FP32_NUM_TESTS` / `--tests` and `FP32_SEED` / `--seed`:
    ```bash
    make test FP32_NUM_TESTS=100000 FP32_SEED=1

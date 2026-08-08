@@ -79,7 +79,7 @@ int main(int argc, char **argv) {
   uint64_t seed = 1;
 
   auto parse_uint64 = [](const char *s, uint64_t &out) -> bool {
-    if (!s || !*s) return false;
+    if (!s || !*s || *s == '-') return false;
     char *end = nullptr;
     errno = 0;
     unsigned long long v = std::strtoull(s, &end, 10);
@@ -393,9 +393,9 @@ int main(int argc, char **argv) {
 
   // === Stratified random testing ===
   std::cout << "=== Stratified random testing ===" << std::endl;
-  std::mt19937 gen1(static_cast<uint32_t>(seed));
-  std::mt19937 gen2(static_cast<uint32_t>(seed ^ 0x9e3779b9ULL));
-  std::mt19937 gen3(static_cast<uint32_t>(seed ^ 0x85ebca6bULL));
+  std::mt19937_64 gen1(seed);
+  std::mt19937_64 gen2(seed ^ 0x9e3779b97f4a7c15ULL);
+  std::mt19937_64 gen3(seed ^ 0xc2b2ae3d27d4eb4fULL);
   std::uniform_int_distribution<uint32_t> dis(0, 0xFFFFFFFF);
 
   for (uint64_t t = 0; t < total_tests; ++t) {

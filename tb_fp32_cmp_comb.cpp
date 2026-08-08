@@ -114,7 +114,7 @@ int main(int argc, char **argv) {
   uint64_t seed = 1;
 
   auto parse_uint64 = [](const char *s, uint64_t &out) -> bool {
-    if (!s || !*s) return false;
+    if (!s || !*s || *s == '-') return false;
     char *end = nullptr;
     errno = 0;
     unsigned long long v = std::strtoull(s, &end, 10);
