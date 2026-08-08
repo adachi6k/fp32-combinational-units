@@ -19,10 +19,11 @@ jobs:
       - name: Build SoftFloat
         run: make softfloat
       - name: Run deterministic smoke tests
-        run: make smoke FP32_SEED=1
+        run: make smoke
 
   lint-and-frontend-compatibility:
     runs-on: ubuntu-24.04
+    needs: smoke-tests
     steps:
       - uses: actions/checkout@v4
         with:
