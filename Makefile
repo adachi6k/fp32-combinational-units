@@ -32,13 +32,55 @@ $(OBJ_DIRS):
 
 # Targets
 .PHONY: all test smoke stress add sub mul div sqrt cmp div-build div-test \
-	sqrt-build sqrt-test debug_div clean softfloat lint
+	sqrt-build sqrt-test debug_div clean softfloat lint cli-test
 all: test
 test: add sub mul cmp div-test sqrt-test
 smoke:
 	$(MAKE) test FP32_NUM_TESTS=1000 FP32_SEED=$${FP32_SEED:-1}
+	$(MAKE) cli-test
 stress:
 	$(MAKE) test FP32_NUM_TESTS=60000000 FP32_SEED=$${FP32_SEED:-1}
+
+# Validate that invalid CLI arguments are rejected with a non-zero exit code.
+define check_cli_error
+	@printf 'cli-test: %-50s' "$(strip $(2))"; \
+	if $(1) >/dev/null 2>&1; then \
+	  echo "FAIL (expected non-zero exit)"; exit 1; \
+	else \
+	  echo "ok"; \
+	fi
+endef
+
+cli-test: add sub mul cmp div-build sqrt-build
+	$(call check_cli_error, ./obj_dir/add/Vfp32_add_comb --tests,          add: --tests without value)
+	$(call check_cli_error, ./obj_dir/add/Vfp32_add_comb --seed,           add: --seed without value)
+	$(call check_cli_error, ./obj_dir/add/Vfp32_add_comb --unknown,        add: unknown option)
+	$(call check_cli_error, ./obj_dir/add/Vfp32_add_comb not_a_number,     add: non-numeric positional)
+	$(call check_cli_error, FP32_NUM_TESTS=bad ./obj_dir/add/Vfp32_add_comb, add: invalid FP32_NUM_TESTS)
+	$(call check_cli_error, ./obj_dir/sub/Vfp32_sub_comb --tests,          sub: --tests without value)
+	$(call check_cli_error, ./obj_dir/sub/Vfp32_sub_comb --seed,           sub: --seed without value)
+	$(call check_cli_error, ./obj_dir/sub/Vfp32_sub_comb --unknown,        sub: unknown option)
+	$(call check_cli_error, ./obj_dir/sub/Vfp32_sub_comb not_a_number,     sub: non-numeric positional)
+	$(call check_cli_error, FP32_SEED=bad ./obj_dir/sub/Vfp32_sub_comb,    sub: invalid FP32_SEED)
+	$(call check_cli_error, ./obj_dir/mul/Vfp32_mul_comb --tests,          mul: --tests without value)
+	$(call check_cli_error, ./obj_dir/mul/Vfp32_mul_comb --seed,           mul: --seed without value)
+	$(call check_cli_error, ./obj_dir/mul/Vfp32_mul_comb --unknown,        mul: unknown option)
+	$(call check_cli_error, ./obj_dir/mul/Vfp32_mul_comb not_a_number,     mul: non-numeric positional)
+	$(call check_cli_error, ./obj_dir/cmp/Vfp32_cmp_comb --tests,          cmp: --tests without value)
+	$(call check_cli_error, ./obj_dir/cmp/Vfp32_cmp_comb --seed,           cmp: --seed without value)
+	$(call check_cli_error, ./obj_dir/cmp/Vfp32_cmp_comb --unknown,        cmp: unknown option)
+	$(call check_cli_error, ./obj_dir/cmp/Vfp32_cmp_comb not_a_number,     cmp: non-numeric positional)
+	$(call check_cli_error, ./obj_dir/div/Vfp32_div_comb --tests,          div: --tests without value)
+	$(call check_cli_error, ./obj_dir/div/Vfp32_div_comb --seed,           div: --seed without value)
+	$(call check_cli_error, ./obj_dir/div/Vfp32_div_comb --unknown,        div: unknown option)
+	$(call check_cli_error, ./obj_dir/div/Vfp32_div_comb not_a_number,     div: non-numeric positional)
+	$(call check_cli_error, FP32_NUM_TESTS=bad ./obj_dir/div/Vfp32_div_comb, div: invalid FP32_NUM_TESTS)
+	$(call check_cli_error, ./obj_dir/sqrt/Vfp32_sqrt_comb --tests,        sqrt: --tests without value)
+	$(call check_cli_error, ./obj_dir/sqrt/Vfp32_sqrt_comb --seed,         sqrt: --seed without value)
+	$(call check_cli_error, ./obj_dir/sqrt/Vfp32_sqrt_comb --unknown,      sqrt: unknown option)
+	$(call check_cli_error, ./obj_dir/sqrt/Vfp32_sqrt_comb not_a_number,   sqrt: non-numeric positional)
+	$(call check_cli_error, FP32_SEED=bad ./obj_dir/sqrt/Vfp32_sqrt_comb,  sqrt: invalid FP32_SEED)
+	@echo "cli-test: all invalid-argument checks passed"
 
 # A specialization switch must invalidate objects because SoftFloat reuses the
 # same object names for every specialization.  Source-only changes are handled

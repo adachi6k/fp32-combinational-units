@@ -42,6 +42,7 @@
  */
 
 #include "Vfp32_mul_comb.h"
+#include <cerrno>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -74,29 +75,73 @@ static constexpr int WEIGHT_SPECIAL_VALUES = 12;
 
 int main(int argc, char **argv) {
   bool verbose = false;
-  long long total_tests = TestConfig::DEFAULT_STRATIFIED_TESTS;
+  uint64_t total_tests = TestConfig::DEFAULT_STRATIFIED_TESTS;
   uint64_t seed = 1;
 
+  auto parse_uint64 = [](const char *s, uint64_t &out) -> bool {
+    if (!s || !*s) return false;
+    char *end = nullptr;
+    errno = 0;
+    unsigned long long v = std::strtoull(s, &end, 10);
+    if (errno || end == s || *end != '\0') return false;
+    out = static_cast<uint64_t>(v);
+    return true;
+  };
+
   if (const char *env = std::getenv("FP32_NUM_TESTS"); env && *env) {
-    long long v = std::atoll(env);
-    if (v >= 0)
-      total_tests = v;
+    uint64_t v = 0;
+    if (!parse_uint64(env, v)) {
+      std::cerr << "Error: FP32_NUM_TESTS=\"" << env << "\" is not a valid non-negative integer\n";
+      return 1;
+    }
+    total_tests = v;
   }
-  if (const char *env = std::getenv("FP32_SEED"); env && *env)
-    seed = std::strtoull(env, nullptr, 10);
+  if (const char *env = std::getenv("FP32_SEED"); env && *env) {
+    uint64_t v = 0;
+    if (!parse_uint64(env, v)) {
+      std::cerr << "Error: FP32_SEED=\"" << env << "\" is not a valid non-negative integer\n";
+      return 1;
+    }
+    seed = v;
+  }
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
       verbose = true;
-    } else if (strcmp(argv[i], "--tests") == 0 && i + 1 < argc) {
-      long long v = std::atoll(argv[++i]);
-      if (v >= 0)
-        total_tests = v;
-    } else if (strcmp(argv[i], "--seed") == 0 && i + 1 < argc) {
-      seed = std::strtoull(argv[++i], nullptr, 10);
+    } else if (strcmp(argv[i], "--tests") == 0) {
+      if (i + 1 >= argc) {
+        std::cerr << "Error: --tests requires a value\nUsage: " << argv[0]
+                  << " [-v] [--tests N] [--seed S] [N]\n";
+        return 1;
+      }
+      uint64_t v = 0;
+      if (!parse_uint64(argv[++i], v)) {
+        std::cerr << "Error: --tests value \"" << argv[i] << "\" is not a valid non-negative integer\n";
+        return 1;
+      }
+      total_tests = v;
+    } else if (strcmp(argv[i], "--seed") == 0) {
+      if (i + 1 >= argc) {
+        std::cerr << "Error: --seed requires a value\nUsage: " << argv[0]
+                  << " [-v] [--tests N] [--seed S] [N]\n";
+        return 1;
+      }
+      uint64_t v = 0;
+      if (!parse_uint64(argv[++i], v)) {
+        std::cerr << "Error: --seed value \"" << argv[i] << "\" is not a valid non-negative integer\n";
+        return 1;
+      }
+      seed = v;
+    } else if (argv[i][0] != '-') {
+      uint64_t v = 0;
+      if (!parse_uint64(argv[i], v)) {
+        std::cerr << "Error: positional argument \"" << argv[i] << "\" is not a valid non-negative integer\n";
+        return 1;
+      }
+      total_tests = v;
     } else {
-      long long v = std::atoll(argv[i]);
-      if (v > 0)
-        total_tests = v;
+      std::cerr << "Error: unknown option \"" << argv[i] << "\"\nUsage: " << argv[0]
+                << " [-v] [--tests N] [--seed S] [N]\n";
+      return 1;
     }
   }
 
@@ -353,7 +398,7 @@ int main(int argc, char **argv) {
   std::mt19937 gen3(static_cast<uint32_t>(seed ^ 0x85ebca6bULL));
   std::uniform_int_distribution<uint32_t> dis(0, 0xFFFFFFFF);
 
-  for (long long t = 0; t < total_tests; ++t) {
+  for (uint64_t t = 0; t < total_tests; ++t) {
     int region_select = dis(gen1) % total_weight;
     int current_weight = 0;
     TestRegion *sel = nullptr;

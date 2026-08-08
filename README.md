@@ -62,11 +62,11 @@ which the result and all five exception flags are checked bit-for-bit.
   - Built under `softfloat/build/Linux-x86_64-GCC/` with `softfloat.a` and headers
 - **Tool qualification status**:
 
-  | Tool / frontend | Status | Continuous check |
-  |---|---|---|
-  | Verilator | Supported | `make lint`, `make smoke` |
-  | Icarus Verilog | Not yet qualified | No |
-  | Yosys | Not yet qualified | No |
+  | Tool / frontend | Status | Continuous check | Verified on |
+  |---|---|---|---|
+  | Verilator | Supported | `make lint`, `make smoke` | Ubuntu 24.04 / Verilator 5.020 (minimum) |
+  | Icarus Verilog | Not yet qualified | No | — |
+  | Yosys | Not yet qualified | No | — |
 
 ## Build & Test
 

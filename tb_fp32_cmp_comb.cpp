@@ -1,5 +1,6 @@
 #include "Vfp32_cmp_comb.h"
 
+#include <cerrno>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -112,22 +113,71 @@ int main(int argc, char **argv) {
   uint64_t random_tests = 2000000;
   uint64_t seed = 1;
 
+  auto parse_uint64 = [](const char *s, uint64_t &out) -> bool {
+    if (!s || !*s) return false;
+    char *end = nullptr;
+    errno = 0;
+    unsigned long long v = std::strtoull(s, &end, 10);
+    if (errno || end == s || *end != '\0') return false;
+    out = static_cast<uint64_t>(v);
+    return true;
+  };
+
   if (const char *env = std::getenv("FP32_NUM_TESTS"); env && *env) {
-    random_tests = std::strtoull(env, nullptr, 10);
+    uint64_t v = 0;
+    if (!parse_uint64(env, v)) {
+      std::cerr << "Error: FP32_NUM_TESTS=\"" << env << "\" is not a valid non-negative integer\n";
+      return 1;
+    }
+    random_tests = v;
   }
   if (const char *env = std::getenv("FP32_SEED"); env && *env) {
-    seed = std::strtoull(env, nullptr, 10);
+    uint64_t v = 0;
+    if (!parse_uint64(env, v)) {
+      std::cerr << "Error: FP32_SEED=\"" << env << "\" is not a valid non-negative integer\n";
+      return 1;
+    }
+    seed = v;
   }
   for (int i = 1; i < argc; ++i) {
     if (std::strcmp(argv[i], "-v") == 0 ||
         std::strcmp(argv[i], "--verbose") == 0) {
       verbose = true;
-    } else if (std::strcmp(argv[i], "--tests") == 0 && i + 1 < argc) {
-      random_tests = std::strtoull(argv[++i], nullptr, 10);
-    } else if (std::strcmp(argv[i], "--seed") == 0 && i + 1 < argc) {
-      seed = std::strtoull(argv[++i], nullptr, 10);
+    } else if (std::strcmp(argv[i], "--tests") == 0) {
+      if (i + 1 >= argc) {
+        std::cerr << "Error: --tests requires a value\nUsage: " << argv[0]
+                  << " [-v] [--tests N] [--seed S] [N]\n";
+        return 1;
+      }
+      uint64_t v = 0;
+      if (!parse_uint64(argv[++i], v)) {
+        std::cerr << "Error: --tests value \"" << argv[i] << "\" is not a valid non-negative integer\n";
+        return 1;
+      }
+      random_tests = v;
+    } else if (std::strcmp(argv[i], "--seed") == 0) {
+      if (i + 1 >= argc) {
+        std::cerr << "Error: --seed requires a value\nUsage: " << argv[0]
+                  << " [-v] [--tests N] [--seed S] [N]\n";
+        return 1;
+      }
+      uint64_t v = 0;
+      if (!parse_uint64(argv[++i], v)) {
+        std::cerr << "Error: --seed value \"" << argv[i] << "\" is not a valid non-negative integer\n";
+        return 1;
+      }
+      seed = v;
+    } else if (argv[i][0] != '-') {
+      uint64_t v = 0;
+      if (!parse_uint64(argv[i], v)) {
+        std::cerr << "Error: positional argument \"" << argv[i] << "\" is not a valid non-negative integer\n";
+        return 1;
+      }
+      random_tests = v;
     } else {
-      random_tests = std::strtoull(argv[i], nullptr, 10);
+      std::cerr << "Error: unknown option \"" << argv[i] << "\"\nUsage: " << argv[0]
+                << " [-v] [--tests N] [--seed S] [N]\n";
+      return 1;
     }
   }
 
