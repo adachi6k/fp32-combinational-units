@@ -30,8 +30,13 @@
  * - Early termination on first failure for efficient debugging
  * 
  * @usage
- * ./obj_dir/Vfp32_div_comb [-v|--verbose]
+ * ./obj_dir/Vfp32_div_comb [-v|--verbose] [--tests N] [--seed S] [N]
  *   -v, --verbose    Enable verbose output for all test cases
+ *   --tests N        Number of random vectors to run
+ *   --seed S         Seed for randomized vector generation
+ *   N                Positive integer: number of random vectors to run
+ *   Environment variable FP32_NUM_TESTS overrides the random-vector count.
+ *   Environment variable FP32_SEED overrides the random seed.
  * 
  * @note Requires SoftFloat library for reference calculations
  */
@@ -58,9 +63,9 @@ extern "C" {
  */
 namespace TestConfig {
   // Test execution parameters
-  static constexpr int TOTAL_STRATIFIED_TESTS = 60000000;  // Total random test vectors
-  static constexpr int SYSTEMATIC_SUBNORM_STEP = 0x00001111;  // Step size for subnormal tests
-  static constexpr int BOUNDARY_TEST_RANGE = 0x10000;  // Range for boundary tests around 1.0
+  static constexpr uint64_t DEFAULT_STRATIFIED_TESTS = 60000000;  // Total random test vectors
+  static constexpr int SYSTEMATIC_SUBNORM_STEP = 0x00001111;      // Step size for subnormal tests
+  static constexpr int BOUNDARY_TEST_RANGE = 0x10000;             // Range for boundary tests around 1.0
   
   // Test region weights for stratified random testing
   static constexpr int WEIGHT_SUBNORMALS = 10;
@@ -75,26 +80,41 @@ namespace TestConfig {
 /**
  * @brief Global test execution time counter
  */
-int time_counter = 0;
+uint64_t time_counter = 0;
 
 int main(int argc, char **argv) {
   // Parse command line arguments for verbose mode
   bool verbose = false;
+  uint64_t total_tests = TestConfig::DEFAULT_STRATIFIED_TESTS;
+  uint64_t seed = 1;
+  if (const char *env = std::getenv("FP32_NUM_TESTS"); env && *env) {
+    total_tests = std::strtoull(env, nullptr, 10);
+  }
+  if (const char *env = std::getenv("FP32_SEED"); env && *env) {
+    seed = std::strtoull(env, nullptr, 10);
+  }
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
       verbose = true;
+    } else if (strcmp(argv[i], "--tests") == 0 && i + 1 < argc) {
+      total_tests = std::strtoull(argv[++i], nullptr, 10);
+    } else if (strcmp(argv[i], "--seed") == 0 && i + 1 < argc) {
+      seed = std::strtoull(argv[++i], nullptr, 10);
+    } else {
+      total_tests = std::strtoull(argv[i], nullptr, 10);
     }
   }
   
   std::cout << "=== IEEE-754 FP32 Combinational Divider Test Suite ===" << std::endl;
-  std::cout << "Target test vectors: " << TestConfig::TOTAL_STRATIFIED_TESTS << std::endl;
+  std::cout << "Random test vectors: " << total_tests << std::endl;
+  std::cout << "Random seed: " << seed << std::endl;
   std::cout << "Verbose mode: " << (verbose ? "ON" : "OFF") << std::endl;
   std::cout << "=======================================================" << std::endl;
-  
-  // Initialize random seed for reproducible yet varied testing
-  srand(static_cast<unsigned>(time(nullptr)));
 
   Verilated::commandArgs(argc, argv);
+  softfloat_roundingMode = softfloat_round_near_even;
+  softfloat_detectTininess = softfloat_tininess_beforeRounding;
+  softfloat_exceptionFlags = 0;
   Vfp32_div_comb *dut = new Vfp32_div_comb();
 
   // Test execution tracking variables
@@ -132,6 +152,9 @@ int main(int argc, char **argv) {
   // Calculate total weight for stratified sampling
   int total_weight = 0;
   for (auto& region : regions) total_weight += region.weight;
+  auto bits_are_nan = [](uint32_t bits) {
+    return (bits & 0x7f800000U) == 0x7f800000U && (bits & 0x007fffffU) != 0;
+  };
 
   // === Enhanced common SoftFloat comparison function ===
   auto compare_with_softfloat = [&](uint32_t a_bits, uint32_t b_bits, const char* test_name = "", 
@@ -159,7 +182,7 @@ int main(int argc, char **argv) {
     
     // ULP calculation for detailed analysis
     uint32_t ulp_diff = 0;
-    bool is_nan_case = std::isnan(*(float*)&rtl_result.u) && std::isnan(*(float*)&math_result_sf.v);
+    bool is_nan_case = bits_are_nan(rtl_result.u) && bits_are_nan(math_result_sf.v);
     if (!is_nan_case) {
       if (rtl_result.u == math_result_sf.v) {
         ulp_diff = 0;
@@ -190,6 +213,7 @@ int main(int argc, char **argv) {
       b_conv.u = b_bits;
       
       std::cout << (strlen(test_name) > 0 ? std::string("[") + test_name + "] " : "")
+                << "seed=" << seed << " "
                 << "a=" << a_conv.f << "(0x" << std::hex << std::setw(8) << std::setfill('0') << a_bits << ") "
                 << "b=" << b_conv.f << "(0x" << std::setw(8) << std::setfill('0') << b_bits << ") "
                 << std::dec << "RTL=" << rtl_result.f << "(0x" << std::hex << std::setw(8) << std::setfill('0') << rtl_result.u << ") "
@@ -226,6 +250,7 @@ int main(int argc, char **argv) {
       b_conv.u = b_bits;
       
       std::cout << "[" << test_name << " FAIL] "
+                << "seed=" << seed << " "
                 << "a=" << a_conv.f << "(0x" << std::hex << a_bits << ") "
                 << "b=" << b_conv.f << "(0x" << b_bits << ") "
                 << "RTL=" << rtl_result.f << "(0x" << rtl_result.u << ") "
@@ -352,7 +377,9 @@ int main(int argc, char **argv) {
     };
     num_cc = sizeof(corner_cases) / sizeof(corner_cases[0]);
     for (int i = 0; i < num_cc; ++i) {
-      if (!compare_with_softfloat(corner_cases[i].a, corner_cases[i].b, ("CASE " + std::to_string(i)).c_str(), !verbose)) {
+      if (!compare_with_softfloat(corner_cases[i].a, corner_cases[i].b,
+                                  ("CASE " + std::to_string(i)).c_str(),
+                                  !verbose)) {
         // On failure, provide detailed output if not in verbose mode
         if (!verbose) {
           union { uint32_t u; float f; } a_conv, b_conv;
@@ -386,7 +413,10 @@ int main(int argc, char **argv) {
   for (uint32_t subnormal = 0x00000001; subnormal <= 0x007fffff; subnormal += TestConfig::SYSTEMATIC_SUBNORM_STEP) {
     uint32_t divisors[] = {0x3f800000, 0x40000000, 0x3f000000, 0x41200000, 0x3e800000};
     for (uint32_t divisor : divisors) {
-      if (!compare_with_softfloat(subnormal, divisor, "SYSTEMATIC", true)) {
+      if (!compare_with_softfloat(
+              subnormal, divisor,
+              ("SYSTEMATIC:" + std::to_string(systematic_tests)).c_str(),
+              true)) {
         return 1;  // Exit on first failure for systematic tests
       }
       systematic_tests++;
@@ -397,7 +427,9 @@ int main(int argc, char **argv) {
   for (uint32_t i = 0; i < TestConfig::BOUNDARY_TEST_RANGE; ++i) {
     uint32_t near_one_a = 0x3f800000 + i - 0x8000;  // Around 1.0
     uint32_t near_one_b = 0x3f800000 + (i * 17) - 0x8000;  // Different pattern
-    if (!compare_with_softfloat(near_one_a, near_one_b, "BOUNDARY", true)) {
+    if (!compare_with_softfloat(
+            near_one_a, near_one_b,
+            ("BOUNDARY:" + std::to_string(systematic_tests)).c_str(), true)) {
       return 1;  // Exit on first failure
     }
     systematic_tests++;
@@ -409,13 +441,12 @@ int main(int argc, char **argv) {
   std::cout << "=== Enhanced random testing ===" << std::endl;
   
   // Use multiple PRNG states for better coverage
-  std::random_device rd;
-  std::mt19937 gen1(rd());
-  std::mt19937 gen2(rd() + 12345);
-  std::mt19937 gen3(rd() + 67890);
+  std::mt19937 gen1(static_cast<uint32_t>(seed));
+  std::mt19937 gen2(static_cast<uint32_t>(seed ^ 0x9e3779b9ULL));
+  std::mt19937 gen3(static_cast<uint32_t>(seed ^ 0x85ebca6bULL));
   std::uniform_int_distribution<uint32_t> dis(0, 0xFFFFFFFF);
 
-  while (time_counter < TestConfig::TOTAL_STRATIFIED_TESTS) {
+  while (time_counter < total_tests) {
     // Select region based on weighted probability
     int region_select = dis(gen1) % total_weight;
     int current_weight = 0;
@@ -428,6 +459,8 @@ int main(int argc, char **argv) {
         break;
       }
     }
+    if (!selected_region)
+      selected_region = &regions[0];
     
     // Generate values within selected region using different generators
     uint32_t rand_bits_a, rand_bits_b;
@@ -442,7 +475,8 @@ int main(int argc, char **argv) {
     if (time_counter % 3 == 0) {
       // Sometimes use values from same region for both operands
       uint32_t range_b = selected_region->end - selected_region->start;
-      rand_bits_b = selected_region->start + (dis(gen2) % range_b);
+      rand_bits_b = range_b ? selected_region->start + (dis(gen2) % range_b)
+                            : selected_region->start;
     } else {
       // Other times use completely different generator
       rand_bits_b = dis(gen3);

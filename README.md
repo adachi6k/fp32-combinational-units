@@ -4,20 +4,22 @@
 [![SystemVerilog](https://img.shields.io/badge/Language-SystemVerilog-green.svg)]()
 [![Tested](https://img.shields.io/badge/Testing-SoftFloat_Verified-brightgreen.svg)]()
 
-A professional-grade, synthesizable collection of IEEE-754 single-precision (FP32)
-combinational add, subtract, multiply, divide, square-root, and comparison units in SystemVerilog.
+A collection of IEEE-754 single-precision (FP32) combinational add, subtract,
+multiply, divide, square-root, and comparison units in SystemVerilog with
+reproducible SoftFloat-backed verification.
 
 ## 🎯 Overview
 
-This project provides high-performance, combinational floating-point arithmetic units designed for production FPGA/ASIC implementation:
+This project provides combinational floating-point arithmetic units together
+with self-checking verification infrastructure:
 
 - **`fp32_addsub.sv`**: Shared add/subtract datapath (`op_sub` selects `a+b` or `a-b`)
 - **`fp32_add_comb.sv`**: Combinational FP32 adder (thin wrapper over the shared core)
 - **`fp32_sub_comb.sv`**: Combinational FP32 subtractor (thin wrapper over the shared core)
 - **`fp32_mul_comb.sv`**: Independent combinational FP32 multiplier
 - **`fp32_cmp_comb.sv`**: DW_fp_cmp-style FP32 comparator with ordered min/max outputs
-- **`fp32_div_comb.sv`**: Combinational FP32 divider with full IEEE-754 compliance
-- **`fp32_sqrt_comb.sv`**: Combinational FP32 square-root with IEEE-754 compliance  
+- **`fp32_div_comb.sv`**: Combinational FP32 divider (round-to-nearest-even only)
+- **`fp32_sqrt_comb.sv`**: Combinational FP32 square-root (round-to-nearest-even only)
 - **Comprehensive Verification**: Self-checking testbenches using Verilator, with SoftFloat as an
   external black-box reference oracle
   - `tb_fp32_add_comb.cpp` / `tb_fp32_sub_comb.cpp` / `tb_fp32_mul_comb.cpp`: corner, systematic
@@ -39,28 +41,32 @@ which the result and all five exception flags are checked bit-for-bit.
 - **🚀 Pure Combinational Logic**: No clocks, resets, or flip-flops - ideal for high-throughput pipelined designs
 - **📐 IEEE-754 Compliant**: Full support for special values, all exception flags, and round-to-nearest-even
 - **🎯 Bit-Exact Accuracy**: Zero ULP errors - verified against the Berkeley SoftFloat reference oracle
-- **⚡ Synthesis Optimized**: Clean SystemVerilog designed for optimal FPGA/ASIC synthesis results
-- **🧪 Production-Ready Testing**: 
+- **🧪 Reproducible Testing**:
   - Corner cases for all IEEE-754 special values
   - Systematic boundary testing for subnormal regions
   - Stratified random testing across entire FP32 space
-  - Early-exit testing for efficient debugging
+  - Deterministic replay with `FP32_SEED` / `--seed`
 - **📋 Professional Quality**: MIT licensed, comprehensive documentation, unified coding standards
 
 ## Design Intent
 
-- **High Performance**: Optimized for maximum combinational delay budget in pipelined processors
 - **Correctness**: Bit-exact IEEE-754 compliance including proper flag generation
 - **Maintainability**: Clear, well-documented SystemVerilog with algorithmic comments
-- **Verification**: Exhaustive testing methodology ensuring confidence in correctness
+- **Verification**: Reproducible randomized and systematic SoftFloat-backed checking
 
 ## Prerequisites
 
-- **Verilator** (v4.0+): For RTL simulation and testbench compilation
+- **Verilator**: For RTL simulation, lint, and testbench compilation
 - **GNU Make**, **g++**, **gcc**: Standard build tools
 - **SoftFloat library**: Berkeley reference implementation, used as a verification oracle only
   - Built under `softfloat/build/Linux-x86_64-GCC/` with `softfloat.a` and headers
-- **Optional**: Verible, svlint for additional code quality checks
+- **Tool qualification status**:
+
+  | Tool / frontend | Status | Continuous check |
+  |---|---|---|
+  | Verilator | Supported | `make lint`, `make smoke` |
+  | Icarus Verilog | Not yet qualified | No |
+  | Yosys | Not yet qualified | No |
 
 ## Build & Test
 
@@ -69,28 +75,39 @@ which the result and all five exception flags are checked bit-for-bit.
    make softfloat      # Builds with SPECIALIZE_TYPE=RISCV (default)
    ```
 
-2. **Run comprehensive tests**:
+2. **Run builds and tests**:
    ```bash
-   make all      # Build all six operation targets; run add/sub/mul/cmp tests
+   make all      # Same as `make test`; build and run all six operation tests
+   make test     # Build and run add/sub/mul/cmp/div/sqrt
+   make smoke    # Fast deterministic cross-operation smoke run
+   make stress   # Long deterministic run with 60M random vectors per operation
    make add      # Build & run the adder testbench
    make sub      # Build & run the subtractor testbench
    make mul      # Build & run the multiplier testbench
    make cmp      # Build & run the comparator testbench
-   make div      # Build the divider testbench
-   make sqrt     # Build the sqrt testbench
+   make div      # Alias for `make div-test`
+   make sqrt     # Alias for `make sqrt-test`
+   make div-build
+   make div-test
+   make sqrt-build
+   make sqrt-test
+   make lint     # Verilator --lint-only --Wall over all six top modules
    make clean    # Clean all generated files
    ```
 
-   The number of stratified random vectors for the add/sub/mul testbenches is
-   configurable (the deterministic corner cases and systematic boundary sweeps
-   always run).  Set the `FP32_NUM_TESTS` environment variable or pass a count
-   as the first argument to the executable:
+   The randomized vector count for every randomized testbench is configurable
+   (the deterministic corner cases and systematic boundary sweeps always run).
+   The randomized sequence is reproducible through a shared seed. Set
+   `FP32_NUM_TESTS` / `--tests` and `FP32_SEED` / `--seed`:
    ```bash
-   make add FP32_NUM_TESTS=50000000        # 50M random vectors
-   ./obj_dir/mul/Vfp32_mul_comb -v 1000000 # verbose, 1M random vectors
+   make test FP32_NUM_TESTS=100000 FP32_SEED=1
+   ./obj_dir/mul/Vfp32_mul_comb --seed 7 --tests 1000000
+   ./obj_dir/cmp/Vfp32_cmp_comb -v --seed 7 1000
    ```
-   The default is 2,000,000 random vectors per unit.  Any mismatch (result or
-   exception flag) prints a detailed report and the testbench exits non-zero.
+   The add/sub/mul/cmp testbenches default to 2,000,000 random vectors; the
+   div/sqrt testbenches default to 60,000,000. Any mismatch (result or
+   exception flag) prints the operands, result, flags, seed, and test index and
+   exits non-zero.
 
 3. **Test output interpretation**:
    - Corner cases are tested first with detailed pass/fail reporting
@@ -203,7 +220,7 @@ module fp32_sqrt_comb (
   - *Square root* (`fp32_sqrt_comb`): radix-4 pair-bit method
 - **Precision**: Full 24-bit significand with explicit guard/round/sticky bits
 - **Special Cases**: Complete handling of ±0, ±∞, NaN, subnormals per IEEE-754
-- **Rounding**: Round-to-nearest-even (ties to even) as per IEEE-754 default
+- **Rounding**: Round-to-nearest-even (ties to even, RNE) only
 - **Underflow**: Gradual (subnormal results); the flag is raised only when the result is tiny
   (detected before rounding) *and* inexact
 - **Exception Flags**: Full IEEE-754 exception flag generation

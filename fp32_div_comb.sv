@@ -22,14 +22,14 @@
  * 
  * @description
  * This module implements a fully combinational IEEE-754 single-precision 
- * floating-point division unit. It supports all IEEE-754 rounding modes,
- * exception handling, and produces bit-accurate results compared to SoftFloat.
+ * floating-point division unit. It implements round-to-nearest-even (RNE)
+ * only, with IEEE-754 exception handling and bit-accurate results compared to
+ * SoftFloat in the supported verification flow.
  * 
  * Features:
- * - Full IEEE-754 compliance including subnormal numbers
+ * - IEEE-754 special-case handling including subnormal numbers
  * - All exception flags (invalid, divide-by-zero, overflow, underflow, inexact)
- * - Round-to-nearest-even (default) rounding mode
- * - Optimized for synthesis and timing closure
+ * - Round-to-nearest-even (RNE) rounding mode
  * 
  * @note Resource usage: Approximately 25-bit divider + normalization logic
  */
@@ -192,15 +192,12 @@ module fp32_div_comb (
   // dynamic normalization intermediate signals
   logic sticky_raw_div;  // raw divider sticky bit
   logic [5:0] lz_q;  // leading zero count of raw quotient
-  logic [49:0] shifted_q;  // normalized 50-bit quotient
-  logic [24:0] q25;  // temp pre-rounded mantissa + guard bit
   logic [24:0] m;  // temporary mantissa for subnormal normalization
 
   // rounding and normalization signals
-  logic [23:0] mant_rnd_div;  // rounded mantissa
+  logic [22:0] frac_rnd_div;  // rounded fraction bits
   logic signed [9:0] exp_sum /*verilator public_flat*/;  // biased exponent after normalization
   logic [24:0] sum_expr;  // intermediate sum for rounding carry
-  logic [47:0] mant_shift;  // for subnormal result shifting
   
   // Rounding control signals
   logic        round_up;      // main path round up decision
@@ -208,7 +205,6 @@ module fp32_div_comb (
   
   // Subnormal rounding intermediate signals
   integer S;
-  logic [46:0] mant_ext;
   logic guard_s, round_s, sticky_s;
   logic [22:0] mant_res;
   logic [50:0] frac_s;  // combined shifted quotient + sticky
@@ -218,16 +214,12 @@ module fp32_div_comb (
   logic [ 7:0] exp_z;
   // intermediate normalization flag (used)
   logic        norm1;
-  // dummy to suppress unused-signal warnings
-  logic        dummy_unused;
 
   // main comb logic
   always_comb begin
-    // default for dummy, flags, and exp_sum to avoid latches
-    dummy_unused = '0;
+    // default for flags and exp_sum to avoid latches
     norm1        = '0;
     exp_sum      = '0;
-    q25          = '0;
     // default internal signals
     raw_div          = '0;
     opa_div          = '0;
@@ -239,14 +231,12 @@ module fp32_div_comb (
     q_full           = '0;
     q_norm           = '0;
     sum_expr         = '0;
-    mant_rnd_div     = '0;
-    mant_shift       = '0;
+    frac_rnd_div     = '0;
     exp_z            = '0;
     // default dynamic-norm signals to prevent latches
     sticky_raw_div   = '0;
     round_up         = '0;
     lz_q             = '0;
-    shifted_q        = '0;
     m                = '0;
     // subnormal defaults
     S                = '0;
@@ -352,9 +342,9 @@ module fp32_div_comb (
       // handle rounding carry-out (norm1 tracks carry for exponent adjustment)
       norm1 = sum_expr[24];
       if (norm1) begin
-        mant_rnd_div = sum_expr[24:1];
+        frac_rnd_div = sum_expr[23:1];
       end else begin
-        mant_rnd_div = sum_expr[23:0];
+        frac_rnd_div = sum_expr[22:0];
       end
       // final overflow/underflow checks
       // Use exp_sum + norm1 for overflow/normal path (carry-adjusted),
@@ -416,7 +406,7 @@ module fp32_div_comb (
         exc_inexact = guard_div || round_div || sticky_div;
         // underflow if result subnormal after rounding
         if (exp_z == 8'd0) exc_underflow = 1'b1;
-        y = {sign_z, exp_z, mant_rnd_div[22:0]};
+        y = {sign_z, exp_z, frac_rnd_div};
       end
     end
     // Post-process: ensure any subnormal result has correct flags
@@ -429,12 +419,6 @@ module fp32_div_comb (
         exc_inexact   = 1'b1;
       end
     end
-    // reference unused signals to suppress lint warnings
-    dummy_unused = |shifted_q      // entire shifted_q vector
-                   | |mant_shift     // entire mant_shift vector
-                   | |mant_ext       // entire mant_ext vector
-                   | frac_s[50]      // msb of frac_s
-                   | mant_rounded[23];// msb of mant_rounded
   end
 
 endmodule

@@ -69,7 +69,7 @@ Expected reference(uint32_t a, uint32_t b, bool zctr) {
 }
 
 bool check(Vfp32_cmp_comb &dut, uint32_t a, uint32_t b, bool zctr,
-           uint64_t index, bool verbose) {
+           uint64_t index, bool verbose, uint64_t seed) {
   dut.a = a;
   dut.b = b;
   dut.zctr = zctr;
@@ -83,7 +83,8 @@ bool check(Vfp32_cmp_comb &dut, uint32_t a, uint32_t b, bool zctr,
       dut.status0 == expected.status0 && dut.status1 == expected.status1;
 
   if (!pass || verbose) {
-    std::cout << "case=" << index << " zctr=" << zctr << std::hex
+    std::cout << "seed=" << seed << " case=" << index << " zctr=" << zctr
+              << std::hex
               << std::setfill('0') << " a=0x" << std::setw(8) << a
               << " b=0x" << std::setw(8) << b << " z0=0x" << std::setw(8)
               << dut.z0 << "/0x" << std::setw(8) << expected.z0
@@ -109,18 +110,32 @@ int main(int argc, char **argv) {
   Verilated::commandArgs(argc, argv);
   bool verbose = false;
   uint64_t random_tests = 2000000;
+  uint64_t seed = 1;
 
   if (const char *env = std::getenv("FP32_NUM_TESTS"); env && *env) {
     random_tests = std::strtoull(env, nullptr, 10);
+  }
+  if (const char *env = std::getenv("FP32_SEED"); env && *env) {
+    seed = std::strtoull(env, nullptr, 10);
   }
   for (int i = 1; i < argc; ++i) {
     if (std::strcmp(argv[i], "-v") == 0 ||
         std::strcmp(argv[i], "--verbose") == 0) {
       verbose = true;
+    } else if (std::strcmp(argv[i], "--tests") == 0 && i + 1 < argc) {
+      random_tests = std::strtoull(argv[++i], nullptr, 10);
+    } else if (std::strcmp(argv[i], "--seed") == 0 && i + 1 < argc) {
+      seed = std::strtoull(argv[++i], nullptr, 10);
     } else {
       random_tests = std::strtoull(argv[i], nullptr, 10);
     }
   }
+
+  std::cout << "=== IEEE-754 FP32 Combinational Comparator Test Suite ===\n";
+  std::cout << "Random test vectors: " << random_tests << '\n';
+  std::cout << "Random seed: " << seed << '\n';
+  std::cout << "Verbose mode: " << (verbose ? "ON" : "OFF") << '\n';
+  std::cout << "==========================================================\n";
 
   Vfp32_cmp_comb dut;
   constexpr uint32_t corner_values[] = {
@@ -133,18 +148,18 @@ int main(int argc, char **argv) {
   for (uint32_t a : corner_values) {
     for (uint32_t b : corner_values) {
       for (int zctr = 0; zctr <= 1; ++zctr) {
-        if (!check(dut, a, b, zctr != 0, index++, verbose))
+        if (!check(dut, a, b, zctr != 0, index++, verbose, seed))
           return 1;
       }
     }
   }
 
-  std::mt19937_64 rng(0xc04f32ULL);
+  std::mt19937_64 rng(seed);
   for (uint64_t i = 0; i < random_tests; ++i) {
     const uint32_t a = static_cast<uint32_t>(rng());
     const uint32_t b = static_cast<uint32_t>(rng());
     const bool zctr = (rng() & 1U) != 0;
-    if (!check(dut, a, b, zctr, index++, verbose))
+    if (!check(dut, a, b, zctr, index++, verbose, seed))
       return 1;
   }
 

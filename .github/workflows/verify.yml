@@ -1,0 +1,36 @@
+name: Verify
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  smoke-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install Verilator
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y verilator
+          verilator --version
+      - name: Build SoftFloat
+        run: make softfloat
+      - name: Run deterministic smoke tests
+        run: make smoke FP32_SEED=1
+
+  lint-and-frontend-compatibility:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install Verilator
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y verilator
+          verilator --version
+      - name: Verilator lint
+        run: make lint

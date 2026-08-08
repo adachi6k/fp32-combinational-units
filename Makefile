@@ -19,11 +19,10 @@ SOFT_CONFIG_STAMP := $(ROOTDIR)/.softfloat-specialize-$(SPECIALIZE_TYPE)
 CFLAGS    = -I$(SOFT_INCLUDE_DIR) -I$(SOFT_BUILD_DIR)
 LDFLAGS   = -L$(SOFT_BUILD_DIR) -l:softfloat.a
 
-# Number of stratified random vectors used by the add/sub/mul testbenches.
-# Override on the command line, e.g. `make add FP32_NUM_TESTS=50000000`.
-# It is exported so the Verilated testbench executables pick it up.
-FP32_NUM_TESTS ?= 2000000
+# Optional randomized test configuration, exported so the Verilated
+# testbench executables can pick it up when provided.
 export FP32_NUM_TESTS
+export FP32_SEED
 
 OBJ_DIRS := obj_dir/add obj_dir/sub obj_dir/mul obj_dir/cmp obj_dir/div obj_dir/sqrt \
 	obj_dir/debug_div
@@ -32,8 +31,14 @@ $(OBJ_DIRS):
 	mkdir -p $@
 
 # Targets
-.PHONY: all add sub mul div sqrt cmp debug_div clean softfloat
-all: div sqrt add sub mul cmp
+.PHONY: all test smoke stress add sub mul div sqrt cmp div-build div-test \
+	sqrt-build sqrt-test debug_div clean softfloat lint
+all: test
+test: add sub mul cmp div-test sqrt-test
+smoke:
+	$(MAKE) test FP32_NUM_TESTS=1000 FP32_SEED=$${FP32_SEED:-1}
+stress:
+	$(MAKE) test FP32_NUM_TESTS=60000000 FP32_SEED=$${FP32_SEED:-1}
 
 # A specialization switch must invalidate objects because SoftFloat reuses the
 # same object names for every specialization.  Source-only changes are handled
@@ -71,19 +76,33 @@ cmp: | obj_dir/cmp
 	./obj_dir/cmp/Vfp32_cmp_comb
 
 # Build fp32_div_comb testbench
-div: softfloat | obj_dir/div
-	$(VERILATOR) --threads 4 --top-module fp32_div_comb --build --cc fp32_div_comb.sv fp32_sqrt_comb.sv \
+div-build: softfloat | obj_dir/div
+	$(VERILATOR) --threads 4 --top-module fp32_div_comb --build --cc fp32_div_comb.sv \
 		--exe $(ROOTDIR)/tb_fp32_div_comb.cpp --Mdir obj_dir/div -CFLAGS "$(CFLAGS)" -LDFLAGS "$(LDFLAGS)"
+div-test: div-build
+	./obj_dir/div/Vfp32_div_comb
+div: div-test
 
 # Build fp32_sqrt_comb testbench
-sqrt: softfloat | obj_dir/sqrt
+sqrt-build: softfloat | obj_dir/sqrt
 	$(VERILATOR) --threads 4 --top-module fp32_sqrt_comb --build --cc fp32_sqrt_comb.sv \
 		--exe $(ROOTDIR)/tb_fp32_sqrt_comb.cpp --Mdir obj_dir/sqrt -CFLAGS "$(CFLAGS)" -LDFLAGS "$(LDFLAGS)"
+sqrt-test: sqrt-build
+	./obj_dir/sqrt/Vfp32_sqrt_comb
+sqrt: sqrt-test
 
 # Build debug version for specific cases
 debug_div: softfloat | obj_dir/debug_div
 	$(VERILATOR) --threads 4 --top-module fp32_div_comb --build --cc fp32_div_comb.sv \
 		--exe $(ROOTDIR)/debug_div.cpp --Mdir obj_dir/debug_div -CFLAGS "$(CFLAGS)" -LDFLAGS "$(LDFLAGS)"
+
+lint:
+	$(VERILATOR) --lint-only --Wall --top-module fp32_add_comb fp32_add_comb.sv fp32_addsub.sv
+	$(VERILATOR) --lint-only --Wall --top-module fp32_sub_comb fp32_sub_comb.sv fp32_addsub.sv
+	$(VERILATOR) --lint-only --Wall --top-module fp32_mul_comb fp32_mul_comb.sv
+	$(VERILATOR) --lint-only --Wall --top-module fp32_cmp_comb fp32_cmp_comb.sv
+	$(VERILATOR) --lint-only --Wall --top-module fp32_div_comb fp32_div_comb.sv
+	$(VERILATOR) --lint-only --Wall --top-module fp32_sqrt_comb fp32_sqrt_comb.sv
 
 # Clean artifacts
 clean:

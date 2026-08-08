@@ -12,21 +12,45 @@ extern "C" {
 #include "softfloat.h"
 }
 
-int time_counter = 0;
+namespace TestConfig {
+static constexpr uint64_t DEFAULT_STRATIFIED_TESTS = 60000000;
+}
+
+uint64_t time_counter = 0;
 
 int main(int argc, char **argv) {
   // Parse command line arguments for verbose mode
   bool verbose = false;
+  uint64_t total_tests = TestConfig::DEFAULT_STRATIFIED_TESTS;
+  uint64_t seed = 1;
+  if (const char *env = std::getenv("FP32_NUM_TESTS"); env && *env) {
+    total_tests = std::strtoull(env, nullptr, 10);
+  }
+  if (const char *env = std::getenv("FP32_SEED"); env && *env) {
+    seed = std::strtoull(env, nullptr, 10);
+  }
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
       verbose = true;
+    } else if (strcmp(argv[i], "--tests") == 0 && i + 1 < argc) {
+      total_tests = std::strtoull(argv[++i], nullptr, 10);
+    } else if (strcmp(argv[i], "--seed") == 0 && i + 1 < argc) {
+      seed = std::strtoull(argv[++i], nullptr, 10);
+    } else {
+      total_tests = std::strtoull(argv[i], nullptr, 10);
     }
   }
-  
-  // seed random for varied FP32 inputs
-  srand(static_cast<unsigned>(time(nullptr)));
+
+  std::cout << "=== IEEE-754 FP32 Combinational Square Root Test Suite ===\n";
+  std::cout << "Random test vectors: " << total_tests << '\n';
+  std::cout << "Random seed: " << seed << '\n';
+  std::cout << "Verbose mode: " << (verbose ? "ON" : "OFF") << '\n';
+  std::cout << "===========================================================\n";
 
   Verilated::commandArgs(argc, argv);
+  softfloat_roundingMode = softfloat_round_near_even;
+  softfloat_detectTininess = softfloat_tininess_beforeRounding;
+  softfloat_exceptionFlags = 0;
 
   Vfp32_sqrt_comb *dut = new Vfp32_sqrt_comb();
 
@@ -54,8 +78,6 @@ int main(int argc, char **argv) {
     {0x80000001, 0xffffffff, "negative_vals", 5}        // All other negatives -> NaN
   };
   
-  //const int TOTAL_STRATIFIED_TESTS = 1000000;
-  const int TOTAL_STRATIFIED_TESTS = 60000000;
   int total_weight = 0;
   for (auto& region : regions) total_weight += region.weight;
 
@@ -241,7 +263,7 @@ int main(int argc, char **argv) {
       bool overall_pass_cc = pass_cc && flags_pass_cc;
       // print only failures or verbose mode
       if (!overall_pass_cc || verbose) {
-        std::cout << "[SQRT CASE " << i << "] a=" << conv_cc.f
+        std::cout << "[SQRT CASE " << i << "] seed=" << seed << " a=" << conv_cc.f
                   << " | rtl=" << out_cc.f << " math=" << math_cc.f
                   << " | ulp_diff=" << ulp_diff_cc
                   << (pass_cc ? " PASS" : " FAIL") << " | flags math=0x"
@@ -281,7 +303,8 @@ int main(int argc, char **argv) {
       union { float f; uint32_t u; } a_union = {.u = subnormal};
       union { float f; uint32_t u; } rtl_union = {.u = dut->y};
       union { float f; uint32_t u; } math_union = {.u = r_sf.v};
-      std::cout << "[SQRT SYS] FAIL: a=" << a_union.f
+      std::cout << "[SQRT SYS " << systematic_tests << "] seed=" << seed
+                << " FAIL: a=" << a_union.f
                 << "(0x" << std::hex << std::setw(8) << std::setfill('0') << subnormal << ")"
                 << " rtl=0x" << std::setw(8) << std::setfill('0') << dut->y
                 << " math=0x" << std::setw(8) << std::setfill('0') << r_sf.v
@@ -309,7 +332,8 @@ int main(int argc, char **argv) {
                         (dut->exc_inexact);
     
     if (dut->y != r_sf_bnd.v || dut_flags_bnd != math_flags_bnd) {
-      std::cout << "[SQRT BOUNDARY] FAIL: a=0x" << std::hex << std::setw(8) << std::setfill('0') << near_one
+      std::cout << "[SQRT BOUNDARY " << systematic_tests << "] seed=" << seed
+                << " FAIL: a=0x" << std::hex << std::setw(8) << std::setfill('0') << near_one
                 << " rtl=0x" << std::setw(8) << std::setfill('0') << dut->y
                 << " math=0x" << std::setw(8) << std::setfill('0') << r_sf_bnd.v
                 << " rtl_flags=0x" << dut_flags_bnd
@@ -327,12 +351,11 @@ int main(int argc, char **argv) {
   std::cout << "=== Stratified random testing ===" << std::endl;
   
   // Use multiple PRNG states for better coverage
-  std::random_device rd;
-  std::mt19937 gen1(rd());
-  std::mt19937 gen2(rd() + 12345);
+  std::mt19937 gen1(static_cast<uint32_t>(seed));
+  std::mt19937 gen2(static_cast<uint32_t>(seed ^ 0x9e3779b9ULL));
   std::uniform_int_distribution<uint32_t> dis(0, 0xFFFFFFFF);
 
-  while (time_counter < TOTAL_STRATIFIED_TESTS) {
+  while (time_counter < total_tests) {
     // Select region based on weighted probability
     int region_select = dis(gen1) % total_weight;
     int current_weight = 0;
@@ -413,7 +436,8 @@ int main(int argc, char **argv) {
 
     // Print only failures or verbose mode
     if (!overall_pass || verbose) {
-      std::cout << "Time: " << time_counter << " | sqrt_in: " << conv.f
+      std::cout << "Time: " << time_counter << " | seed=" << seed
+                << " | sqrt_in: " << conv.f
                 << " (bits=0x" << std::hex << std::setw(8) << std::setfill('0')
                 << conv.u << std::dec << ")" << " | sqrt_out(rtl): " << out_conv.f
                 << " (bits=0x" << std::hex << std::setw(8) << std::setfill('0')
