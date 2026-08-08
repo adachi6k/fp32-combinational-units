@@ -1,4 +1,5 @@
 obj_dir/
+.softfloat-specialize-*
 *.txt
 !README.md
 test_div_special.cpp
