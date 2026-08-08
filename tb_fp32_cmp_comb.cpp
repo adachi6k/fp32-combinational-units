@@ -1,5 +1,6 @@
 #include "Vfp32_cmp_comb.h"
 
+#include <cerrno>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -69,7 +70,7 @@ Expected reference(uint32_t a, uint32_t b, bool zctr) {
 }
 
 bool check(Vfp32_cmp_comb &dut, uint32_t a, uint32_t b, bool zctr,
-           uint64_t index, bool verbose) {
+           uint64_t index, bool verbose, uint64_t seed) {
   dut.a = a;
   dut.b = b;
   dut.zctr = zctr;
@@ -83,7 +84,8 @@ bool check(Vfp32_cmp_comb &dut, uint32_t a, uint32_t b, bool zctr,
       dut.status0 == expected.status0 && dut.status1 == expected.status1;
 
   if (!pass || verbose) {
-    std::cout << "case=" << index << " zctr=" << zctr << std::hex
+    std::cout << "seed=" << seed << " case=" << index << " zctr=" << zctr
+              << std::hex
               << std::setfill('0') << " a=0x" << std::setw(8) << a
               << " b=0x" << std::setw(8) << b << " z0=0x" << std::setw(8)
               << dut.z0 << "/0x" << std::setw(8) << expected.z0
@@ -109,18 +111,81 @@ int main(int argc, char **argv) {
   Verilated::commandArgs(argc, argv);
   bool verbose = false;
   uint64_t random_tests = 2000000;
+  uint64_t seed = 1;
+
+  auto parse_uint64 = [](const char *s, uint64_t &out) -> bool {
+    if (!s || !*s || *s == '-') return false;
+    char *end = nullptr;
+    errno = 0;
+    unsigned long long v = std::strtoull(s, &end, 10);
+    if (errno || end == s || *end != '\0') return false;
+    out = static_cast<uint64_t>(v);
+    return true;
+  };
 
   if (const char *env = std::getenv("FP32_NUM_TESTS"); env && *env) {
-    random_tests = std::strtoull(env, nullptr, 10);
+    uint64_t v = 0;
+    if (!parse_uint64(env, v)) {
+      std::cerr << "Error: FP32_NUM_TESTS=\"" << env << "\" is not a valid non-negative integer\n";
+      return 1;
+    }
+    random_tests = v;
+  }
+  if (const char *env = std::getenv("FP32_SEED"); env && *env) {
+    uint64_t v = 0;
+    if (!parse_uint64(env, v)) {
+      std::cerr << "Error: FP32_SEED=\"" << env << "\" is not a valid non-negative integer\n";
+      return 1;
+    }
+    seed = v;
   }
   for (int i = 1; i < argc; ++i) {
     if (std::strcmp(argv[i], "-v") == 0 ||
         std::strcmp(argv[i], "--verbose") == 0) {
       verbose = true;
+    } else if (std::strcmp(argv[i], "--tests") == 0) {
+      if (i + 1 >= argc) {
+        std::cerr << "Error: --tests requires a value\nUsage: " << argv[0]
+                  << " [-v] [--tests N] [--seed S] [N]\n";
+        return 1;
+      }
+      uint64_t v = 0;
+      if (!parse_uint64(argv[++i], v)) {
+        std::cerr << "Error: --tests value \"" << argv[i] << "\" is not a valid non-negative integer\n";
+        return 1;
+      }
+      random_tests = v;
+    } else if (std::strcmp(argv[i], "--seed") == 0) {
+      if (i + 1 >= argc) {
+        std::cerr << "Error: --seed requires a value\nUsage: " << argv[0]
+                  << " [-v] [--tests N] [--seed S] [N]\n";
+        return 1;
+      }
+      uint64_t v = 0;
+      if (!parse_uint64(argv[++i], v)) {
+        std::cerr << "Error: --seed value \"" << argv[i] << "\" is not a valid non-negative integer\n";
+        return 1;
+      }
+      seed = v;
+    } else if (argv[i][0] != '-') {
+      uint64_t v = 0;
+      if (!parse_uint64(argv[i], v)) {
+        std::cerr << "Error: positional argument \"" << argv[i] << "\" is not a valid non-negative integer\n";
+        return 1;
+      }
+      random_tests = v;
     } else {
-      random_tests = std::strtoull(argv[i], nullptr, 10);
+      std::cerr << "Error: unknown option \"" << argv[i] << "\"\nUsage: " << argv[0]
+                << " [-v] [--tests N] [--seed S] [N]\n";
+      return 1;
     }
   }
+
+  std::cout << "=== IEEE-754 FP32 Combinational Comparator Test Suite ===\n";
+  std::cout << "Random test vectors: " << random_tests << '\n';
+  std::cout << "Random seed: " << seed << '\n';
+  std::cout << "Verbose mode: " << (verbose ? "ON" : "OFF") << '\n';
+  std::cout << "==========================================================\n";
 
   Vfp32_cmp_comb dut;
   constexpr uint32_t corner_values[] = {
@@ -133,18 +198,18 @@ int main(int argc, char **argv) {
   for (uint32_t a : corner_values) {
     for (uint32_t b : corner_values) {
       for (int zctr = 0; zctr <= 1; ++zctr) {
-        if (!check(dut, a, b, zctr != 0, index++, verbose))
+        if (!check(dut, a, b, zctr != 0, index++, verbose, seed))
           return 1;
       }
     }
   }
 
-  std::mt19937_64 rng(0xc04f32ULL);
+  std::mt19937_64 rng(seed);
   for (uint64_t i = 0; i < random_tests; ++i) {
     const uint32_t a = static_cast<uint32_t>(rng());
     const uint32_t b = static_cast<uint32_t>(rng());
     const bool zctr = (rng() & 1U) != 0;
-    if (!check(dut, a, b, zctr, index++, verbose))
+    if (!check(dut, a, b, zctr, index++, verbose, seed))
       return 1;
   }
 

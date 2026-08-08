@@ -30,15 +30,19 @@
  *   - Stratified random testing across the entire FP32 space
  *
  * @usage
- * ./obj_dir/Vfp32_sub_comb [-v|--verbose] [N]
+ * ./obj_dir/Vfp32_sub_comb [-v|--verbose] [--tests N] [--seed S] [N]
  *   -v, --verbose        Verbose output for every test case
+ *   --tests N            Number of random vectors to run
+ *   --seed S             Seed for randomized vector generation
  *   N                    Positive integer: number of random vectors to run
  *   Environment variable FP32_NUM_TESTS overrides the random-vector count.
+ *   Environment variable FP32_SEED overrides the random seed.
  *
  * Any mismatch prints a detailed report and returns a non-zero exit status.
  */
 
 #include "Vfp32_sub_comb.h"
+#include <cerrno>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -71,31 +75,86 @@ static constexpr int WEIGHT_SPECIAL_VALUES = 12;
 
 int main(int argc, char **argv) {
   bool verbose = false;
-  long long total_tests = TestConfig::DEFAULT_STRATIFIED_TESTS;
+  uint64_t total_tests = TestConfig::DEFAULT_STRATIFIED_TESTS;
+  uint64_t seed = 1;
 
-  if (const char *env = std::getenv("FP32_NUM_TESTS")) {
-    long long v = std::atoll(env);
-    if (v >= 0)
-      total_tests = v;
+  auto parse_uint64 = [](const char *s, uint64_t &out) -> bool {
+    if (!s || !*s || *s == '-') return false;
+    char *end = nullptr;
+    errno = 0;
+    unsigned long long v = std::strtoull(s, &end, 10);
+    if (errno || end == s || *end != '\0') return false;
+    out = static_cast<uint64_t>(v);
+    return true;
+  };
+
+  if (const char *env = std::getenv("FP32_NUM_TESTS"); env && *env) {
+    uint64_t v = 0;
+    if (!parse_uint64(env, v)) {
+      std::cerr << "Error: FP32_NUM_TESTS=\"" << env << "\" is not a valid non-negative integer\n";
+      return 1;
+    }
+    total_tests = v;
+  }
+  if (const char *env = std::getenv("FP32_SEED"); env && *env) {
+    uint64_t v = 0;
+    if (!parse_uint64(env, v)) {
+      std::cerr << "Error: FP32_SEED=\"" << env << "\" is not a valid non-negative integer\n";
+      return 1;
+    }
+    seed = v;
   }
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
       verbose = true;
+    } else if (strcmp(argv[i], "--tests") == 0) {
+      if (i + 1 >= argc) {
+        std::cerr << "Error: --tests requires a value\nUsage: " << argv[0]
+                  << " [-v] [--tests N] [--seed S] [N]\n";
+        return 1;
+      }
+      uint64_t v = 0;
+      if (!parse_uint64(argv[++i], v)) {
+        std::cerr << "Error: --tests value \"" << argv[i] << "\" is not a valid non-negative integer\n";
+        return 1;
+      }
+      total_tests = v;
+    } else if (strcmp(argv[i], "--seed") == 0) {
+      if (i + 1 >= argc) {
+        std::cerr << "Error: --seed requires a value\nUsage: " << argv[0]
+                  << " [-v] [--tests N] [--seed S] [N]\n";
+        return 1;
+      }
+      uint64_t v = 0;
+      if (!parse_uint64(argv[++i], v)) {
+        std::cerr << "Error: --seed value \"" << argv[i] << "\" is not a valid non-negative integer\n";
+        return 1;
+      }
+      seed = v;
+    } else if (argv[i][0] != '-') {
+      uint64_t v = 0;
+      if (!parse_uint64(argv[i], v)) {
+        std::cerr << "Error: positional argument \"" << argv[i] << "\" is not a valid non-negative integer\n";
+        return 1;
+      }
+      total_tests = v;
     } else {
-      long long v = std::atoll(argv[i]);
-      if (v > 0)
-        total_tests = v;
+      std::cerr << "Error: unknown option \"" << argv[i] << "\"\nUsage: " << argv[0]
+                << " [-v] [--tests N] [--seed S] [N]\n";
+      return 1;
     }
   }
 
   std::cout << "=== IEEE-754 FP32 Combinational Subtractor Test Suite ===" << std::endl;
   std::cout << "Random test vectors: " << total_tests << std::endl;
+  std::cout << "Random seed: " << seed << std::endl;
   std::cout << "Verbose mode: " << (verbose ? "ON" : "OFF") << std::endl;
   std::cout << "=========================================================" << std::endl;
 
-  srand(static_cast<unsigned>(time(nullptr)));
   Verilated::commandArgs(argc, argv);
+  softfloat_roundingMode = softfloat_round_near_even;
   softfloat_detectTininess = softfloat_tininess_beforeRounding;
+  softfloat_exceptionFlags = 0;
   Vfp32_sub_comb *dut = new Vfp32_sub_comb();
 
   int num_cc = 0;
@@ -165,6 +224,7 @@ int main(int argc, char **argv) {
       b_conv.u = b_bits;
       ref_conv.u = ref.v;
       std::cout << (strlen(test_name) > 0 ? std::string("[") + test_name + "] " : "")
+                << "seed=" << seed << " "
                 << "a=" << a_conv.f << "(0x" << std::hex << std::setw(8) << std::setfill('0') << a_bits << ") "
                 << "b=" << b_conv.f << "(0x" << std::setw(8) << std::setfill('0') << b_bits << ") "
                 << std::dec << "RTL=" << rtl_result.f << "(0x" << std::hex << std::setw(8) << std::setfill('0') << rtl_result.u << ") "
@@ -269,7 +329,9 @@ int main(int argc, char **argv) {
     for (uint32_t sub = 0x00000001; sub <= 0x007fffff;
          sub += TestConfig::SYSTEMATIC_SUBNORM_STEP) {
       for (uint32_t b : bs) {
-        if (!compare_with_softfloat(sub, b, "SYS_SUBNORM")) {
+        if (!compare_with_softfloat(
+                sub, b,
+                ("SYS_SUBNORM:" + std::to_string(systematic_tests)).c_str())) {
           dut->final();
           delete dut;
           return 1;
@@ -283,7 +345,8 @@ int main(int argc, char **argv) {
   for (uint32_t i = 0; i < TestConfig::BOUNDARY_TEST_RANGE; ++i) {
     uint32_t a = 0x3f800000 + i - 0x8000;
     uint32_t b = 0x3f800000 + (i * 17) - 0x8000;
-    if (!compare_with_softfloat(a, b, "BOUNDARY")) {
+    if (!compare_with_softfloat(
+            a, b, ("BOUNDARY:" + std::to_string(systematic_tests)).c_str())) {
       dut->final();
       delete dut;
       return 1;
@@ -295,7 +358,8 @@ int main(int argc, char **argv) {
   for (uint32_t i = 0; i < TestConfig::BOUNDARY_TEST_RANGE; ++i) {
     uint32_t a = 0x40490fdb + i - 0x8000; // around pi
     uint32_t b = a + (i & 0x3f) - 0x20;   // near +a with jitter
-    if (!compare_with_softfloat(a, b, "CANCEL")) {
+    if (!compare_with_softfloat(
+            a, b, ("CANCEL:" + std::to_string(systematic_tests)).c_str())) {
       dut->final();
       delete dut;
       return 1;
@@ -307,13 +371,12 @@ int main(int argc, char **argv) {
 
   // === Stratified random testing ===
   std::cout << "=== Stratified random testing ===" << std::endl;
-  std::random_device rd;
-  std::mt19937 gen1(rd());
-  std::mt19937 gen2(rd() + 12345);
-  std::mt19937 gen3(rd() + 67890);
+  std::mt19937_64 gen1(seed);
+  std::mt19937_64 gen2(seed ^ 0x9e3779b97f4a7c15ULL);
+  std::mt19937_64 gen3(seed ^ 0xc2b2ae3d27d4eb4fULL);
   std::uniform_int_distribution<uint32_t> dis(0, 0xFFFFFFFF);
 
-  for (long long t = 0; t < total_tests; ++t) {
+  for (uint64_t t = 0; t < total_tests; ++t) {
     int region_select = dis(gen1) % total_weight;
     int current_weight = 0;
     TestRegion *sel = nullptr;
@@ -324,6 +387,8 @@ int main(int argc, char **argv) {
         break;
       }
     }
+    if (!sel)
+      sel = &regions[0];
 
     uint32_t a_bits, b_bits;
     uint32_t range_a = sel->end - sel->start;
