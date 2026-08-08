@@ -226,13 +226,13 @@ int main(int argc, char **argv) {
         {0xff7fffff, 0x40000000}, // -maxfinite * 2 = -inf (overflow)
         {0x7f7fffff, 0x3f800001}, // maxfinite * (1+1ulp) = +inf (overflow)
         // Underflow / gradual underflow
-        {0x00800000, 0x3f000000}, // minnormal * 0.5 = maxsubnormal (underflow)
+        {0x00800000, 0x3f000000}, // minnormal * 0.5 = 0x00400000 (exact subnormal)
         {0x00800000, 0x00800000}, // minnormal * minnormal = +0 (underflow,inexact)
         {0x00000001, 0x00000001}, // minsubnormal * minsubnormal = +0 (underflow)
         {0x00000001, 0x3f000000}, // minsubnormal * 0.5 = +0 (underflow, halfway->even)
         {0x00000002, 0x3f000000}, // 2ulp * 0.5 = minsubnormal (exact)
         {0x00800000, 0x00000001}, // minnormal * minsubnormal = +0 (deep underflow)
-        {0x34000000, 0x34000000}, // small * small -> subnormal/underflow
+        {0x1fffffff, 0x1fffffff}, // just below 2^-63 squared -> subnormal (underflow,inexact)
         {0x01000000, 0x3f000000}, // (2*minnormal) * 0.5 = minnormal (exact)
         {0x007fffff, 0x3f800000}, // maxsubnormal * 1 = maxsubnormal (exact)
         {0x00c00000, 0x3f000000}, // 1.5*minnormal * 0.5 -> subnormal rounding
@@ -296,11 +296,25 @@ int main(int argc, char **argv) {
     systematic_tests++;
   }
 
-  // Overflow/underflow product sweep: large * small crossing representability.
+  // Overflow sweep: max-finite multiplied by values immediately around 1.0.
   for (uint32_t i = 0; i < TestConfig::BOUNDARY_TEST_RANGE; ++i) {
-    uint32_t a = 0x7f000000 + (i & 0x7fffff); // near-overflow magnitudes
-    uint32_t b = 0x00000001 + (i * 61);       // subnormal/small magnitudes
-    if (!compare_with_softfloat(a, b, "OVF_UNF")) {
+    uint32_t a = 0x7f7fffff;                  // maximum finite value
+    uint32_t b = 0x3f7f8000 + i;              // values just below/above 1.0
+    if (!compare_with_softfloat(a, b, "OVF_BOUNDARY")) {
+      dut->final();
+      delete dut;
+      return 1;
+    }
+    systematic_tests++;
+  }
+
+  // Underflow sweep: a non-power-of-two value near the minimum normal
+  // multiplied by values immediately around 1.0.  This crosses the
+  // normal/subnormal boundary and exercises tiny, inexact products.
+  for (uint32_t i = 0; i < TestConfig::BOUNDARY_TEST_RANGE; ++i) {
+    uint32_t a = 0x00800001;                  // min-normal plus one significand ulp
+    uint32_t b = 0x3f7f8000 + i;              // values just below/above 1.0
+    if (!compare_with_softfloat(a, b, "UNF_BOUNDARY")) {
       dut->final();
       delete dut;
       return 1;

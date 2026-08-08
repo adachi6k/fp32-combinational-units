@@ -225,7 +225,7 @@ int main(int argc, char **argv) {
         {0x00800001, 0x00800000}, // (minnormal+1ulp) - minnormal = minsubnormal
         {0x01000000, 0x00800000}, // (2*minnormal) - minnormal = minnormal
         // Round / tie-to-even near unit in the last place
-        {0x3f800000, 0x33800000}, // 1 - 2^-24 -> just below 1 (rounds, inexact)
+        {0x3f800000, 0x33800000}, // 1 - 2^-24 = 0x3f7fffff (exact)
         {0x3f800000, 0x34000000}, // 1 - 2^-23
         {0x3f800001, 0x33800000}, // (1+1ulp) - 2^-24 -> tie to even
         {0x4b800000, 0x3f800000}, // 2^24 - 1 -> exact

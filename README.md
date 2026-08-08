@@ -4,7 +4,8 @@
 [![SystemVerilog](https://img.shields.io/badge/Language-SystemVerilog-green.svg)]()
 [![Tested](https://img.shields.io/badge/Testing-SoftFloat_Verified-brightgreen.svg)]()
 
-A professional-grade, synthesizable implementation of IEEE-754 single-precision (FP32) combinational add, subtract, multiply, divide and square-root units in SystemVerilog.
+A professional-grade, synthesizable collection of IEEE-754 single-precision (FP32)
+combinational add, subtract, multiply, divide, square-root, and comparison units in SystemVerilog.
 
 ## 🎯 Overview
 
@@ -21,6 +22,7 @@ This project provides high-performance, combinational floating-point arithmetic 
   external black-box reference oracle
   - `tb_fp32_add_comb.cpp` / `tb_fp32_sub_comb.cpp` / `tb_fp32_mul_comb.cpp`: corner, systematic
     boundary, and configurable stratified random testing against `f32_add`/`f32_sub`/`f32_mul`
+  - `tb_fp32_cmp_comb.cpp`: deterministic corner and configurable randomized comparison testing
   - `tb_fp32_div_comb.cpp`: 60M+ test vectors including systematic and stratified random testing
   - `tb_fp32_sqrt_comb.cpp`: Extensive corner-case and random testing for square-root
 
@@ -69,7 +71,7 @@ which the result and all five exception flags are checked bit-for-bit.
 
 2. **Run comprehensive tests**:
    ```bash
-   make all      # Build all five units; build & run the add/sub/mul testbenches
+   make all      # Build all six operation targets; run add/sub/mul/cmp tests
    make add      # Build & run the adder testbench
    make sub      # Build & run the subtractor testbench
    make mul      # Build & run the multiplier testbench
@@ -85,7 +87,7 @@ which the result and all five exception flags are checked bit-for-bit.
    as the first argument to the executable:
    ```bash
    make add FP32_NUM_TESTS=50000000        # 50M random vectors
-   ./obj_dir/Vfp32_mul_comb -v 1000000     # verbose, 1M random vectors
+   ./obj_dir/mul/Vfp32_mul_comb -v 1000000 # verbose, 1M random vectors
    ```
    The default is 2,000,000 random vectors per unit.  Any mismatch (result or
    exception flag) prints a detailed report and the testbench exits non-zero.
